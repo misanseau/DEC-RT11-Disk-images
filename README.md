@@ -1,4 +1,4 @@
-# rt11dv
+# rt11dv	27 aper
 
 Console utility for **Win32 (Visual Studio 2022)** that manipulates
 `.dsk` image files in the **DEC RT-11 / TSX+** filesystem format
@@ -86,7 +86,11 @@ Version 0.3 added:
   `cmd_ods1_dir.c` housing the ODS-1 walker and `rsts.c` the RSTS
   pack-label decoder.
 
-The program implements the full set of commands from the specification:
+Version 0.2 adds FSM magtape support (MOUNT/FORMAT/DIR/COPY on `MT:`)
+and re-bases the `DIR` command so that it inspects the host filesystem
+when no device is given.
+
+The program implements this commands:
 
 | Verb | Short | Description |
 |------|-------|-------------|
