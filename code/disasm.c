@@ -89,57 +89,14 @@ byte	flags[512];				// disassembly flags from the control file
 
 //////////////////////////////////
 
-int disasm(uint16_t prog[], uint16_t cont[]) {
+int disasm(uint16_t prog[], byte cont[]) {
 	int			max;
 	uint16_t	start, stop;
 	char		*text, func, chr;
 
 	program = &prog[0];
-	max = BLK_LEN;
-	start = stop = 0;
-	temp[0] = '\0';
-	text = (char *) &temp[1];
-	while (isgraph(*text)) text++;	// skip remaining chars in 1st word					
-	text = get_adrs(text, &start);	// get octal address of start
-	while (1)
-	{
-		chr = *text++;
-		if (chr != ' ' && chr != '\t') break;	// skip whitespace
-	}
-	if (chr == '\n' || chr == ';') --text;  	// if only one numeric... back up to newline
-	func = chr;									// save operator
-	text = get_adrs(text, &stop);				// get octal address of end
-	if (func == '+') 
-		stop += (start - 1);					// check for valid operator				
-	else if (func == '-' && !stop)
-		stop = start;
-	if (start < max && stop < max)
-	{
-		switch (toupper(temp[0]))
-		{
-		case 'A':				// ascii text
-			do
-			{
-				flags[start++] = CTL_ASCII;
-			} while (start <= stop);
-			break;
-		case 'D':				// data
-			do
-			{
-				flags[start++] = CTL_DATA;
-			} while (start <= stop);
-			break;
-		case ';':				// comment
-			break;
-		default:				// ignore anything else
-			printf("Invalid control code: %s\n", temp);
-			break;
-		}
-	}
-	else
-		fprintf(stderr, "Invalid address in %s\n", temp);
-	
-	max /= 2;
+	memcpy(flags, cont, BLK_LEN);
+	max = BLK_LEN / 2;
 	printf(";\n; pdp11dasm version %d.%d.%d\n;", VERSION, MAJOR_REV, MINOR_REV);
 	for (pc=0; pc<max; )			// do the disassembly
 	{
@@ -161,6 +118,7 @@ void printAscii(uint16_t data) {
 	if (chr < ' ' || chr > '~')	chr = '.';
 	printf("%c", chr);
 }
+//===============================================================
 
 // Output a string of up to three words (6 bytes) (DEFB)
 int doString(int adrs) {
@@ -215,6 +173,7 @@ int doString(int adrs) {
 	if (flags[adrs * 2] == CTL_NONE) breakLine = TRUE;
 	return adrs;
 }
+//===============================================================
 
 // Output up to 3 words of data (DEFW)
 int doData(int adrs) {
@@ -237,6 +196,7 @@ int doData(int adrs) {
 	if (flags[adrs * 2] == CTL_NONE) breakLine = TRUE;
 	return adrs;
 }
+//===============================================================
 
 // Decode the current opcode
 int decode(int adrs) {
@@ -310,11 +270,13 @@ int decode(int adrs) {
 	if (breakLine) printf("\n;");
 	return adrs;
 }
+//===============================================================
 
 // Invalid opcode
 void invalid(void) {
 	sprintf(outLine, "\tinvalid opcode");
 }
+//===============================================================
 
 // jsr opcodes
 int jsr(int adrs) {
@@ -330,6 +292,7 @@ int jsr(int adrs) {
 	adrs = doOperand(adrs, program[adrs] & MODEREG_MASK);
 	return adrs;
 }
+//===============================================================
 
 void doOffset(int adrs, int offset) {
 	int	dst;
@@ -342,6 +305,7 @@ void doOffset(int adrs, int offset) {
 	sprintf(temp, "%o", dst);
 	strcat(outLine, temp);
 }
+//===============================================================
 
 // miscellaneous group 0 opcodes
 // halt, wait, rti, bpt, iot, reset, rtt, mfpt, jmp, rts, spl, nop, swab, br
@@ -430,6 +394,7 @@ int misc0(int adrs) {
 	}
 	return adrs;
 }
+//===============================================================
 
 // miscellaneous opcodes
 int group0(int adrs) {
@@ -511,6 +476,7 @@ int group0(int adrs) {
 	}
 	return adrs + 1;
 }
+//===============================================================
 
 // mov opcodes
 int group1(int adrs)
@@ -524,6 +490,7 @@ int group1(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // cmp opcodes
 int group2(int adrs) {
@@ -536,6 +503,7 @@ int group2(int adrs) {
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // bit opcodes
 int group3(int adrs) {
@@ -548,6 +516,7 @@ int group3(int adrs) {
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // bic opcodes
 int group4(int adrs)
@@ -561,6 +530,7 @@ int group4(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // bis opcodes
 int group5(int adrs)
@@ -574,6 +544,7 @@ int group5(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // add opcodes
 int group6(int adrs)
@@ -587,6 +558,7 @@ int group6(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // register opcodes
 int group7(int adrs)
@@ -659,6 +631,7 @@ int group7(int adrs)
 	}
 	return adrs + 1;
 }
+//===============================================================
 
 // branch opcodes + emt, trap, clrb, comb, incb, decb, negb, adcb, sbcb, tstb, rorb, rolb, asrb, aslb, mfpd, mtpd
 int group8(int adrs)
@@ -751,6 +724,7 @@ int group8(int adrs)
 	}
 	return adrs + 1;
 }
+//===============================================================
 
 // movb opcodes
 int group9(int adrs)
@@ -764,6 +738,7 @@ int group9(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // cmpb opcodes
 int groupa(int adrs)
@@ -777,6 +752,7 @@ int groupa(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // bitb opcodes
 int groupb(int adrs)
@@ -790,6 +766,7 @@ int groupb(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // bicb opcodes
 int groupc(int adrs)
@@ -803,6 +780,7 @@ int groupc(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // bisb opcodes
 int groupd(int adrs)
@@ -816,6 +794,7 @@ int groupd(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // sub opcodes
 int groupe(int adrs)
@@ -829,6 +808,7 @@ int groupe(int adrs)
 	adrs = doOperand(adrs, modereg & MODEREG_MASK);
 	return adrs + 1;
 }
+//===============================================================
 
 // Output floating point instruction operands
 // [TODO] Get accurate documentation on floating point instructions and fix this function.
@@ -854,6 +834,7 @@ int doFPOperand(int adrs)
 	}
 	return adrs;
 }
+//===============================================================
 
 // floating point opcodes
 int groupf(int adrs)
@@ -901,37 +882,24 @@ int groupf(int adrs)
 			}
 			break;
 
-		case 0x02:	// mulf, muld
-			sprintf(outLine, "\tmult");	adrs = doFPOperand(adrs);	break;
-		case 0x03:	// modf, modd
-			sprintf(outLine, "\tmodf");	adrs = doFPOperand(adrs);	break;
-		case 0x04:	// addf, addd
-			sprintf(outLine, "\taddf");	adrs = doFPOperand(adrs);	break;
-		case 0x05:	// ldf, ldd
-			sprintf(outLine, "\tldf");	adrs = doFPOperand(adrs);	break;
-		case 0x06:	// subf, subd
-			sprintf(outLine, "\tsubf");	adrs = doFPOperand(adrs);	break;
-		case 0x07:	// cmpf, cmpd
-			sprintf(outLine, "\tcmpf");	adrs = doFPOperand(adrs);	break;
-		case 0x08:	// stf, std
-			sprintf(outLine, "\tstf");	adrs = doFPOperand(adrs);	break;
-		case 0x09:	// divf, divd
-			sprintf(outLine, "\tdivf");	adrs = doFPOperand(adrs);	break;
-		case 0x0a:	// stexp
-			sprintf(outLine, "\tstexp"); adrs = doFPOperand(adrs);	break;
-		case 0x0b:	// stcfi, stcfl, stcdi, stcdl
-			break;
-		case 0x0c:	// stcfd, stcdf
-			sprintf(outLine, "\tstcdf"); adrs = doFPOperand(adrs);	break;
-		case 0x0d:	// ldexp
-			sprintf(outLine, "\tldexp"); adrs = doFPOperand(adrs);	break;
-		case 0x0e:	// ldcif, ldcid, ldclf, ldcld
-			sprintf(outLine, "\tldcif"); adrs = doFPOperand(adrs);	break;
-		case 0x0f:	// ldcdf, ldcfd
-			sprintf(outLine, "\tldcdf"); adrs = doFPOperand(adrs);	break;
+		case 0x02:	sprintf(outLine, "\tmult");	adrs = doFPOperand(adrs);	break; // mulf, muld
+		case 0x03:	sprintf(outLine, "\tmodf");	adrs = doFPOperand(adrs);	break; // modf, modd
+		case 0x04:	sprintf(outLine, "\taddf");	adrs = doFPOperand(adrs);	break; // addf, addd
+		case 0x05:	sprintf(outLine, "\tldf");	adrs = doFPOperand(adrs);	break; // ldf, ldd
+		case 0x06:	sprintf(outLine, "\tsubf");	adrs = doFPOperand(adrs);	break; // subf, subd
+		case 0x07:	sprintf(outLine, "\tcmpf");	adrs = doFPOperand(adrs);	break; // cmpf, cmpd
+		case 0x08:	sprintf(outLine, "\tstf");	adrs = doFPOperand(adrs);	break; // stf, std
+		case 0x09:	sprintf(outLine, "\tdivf");	adrs = doFPOperand(adrs);	break; // divf, divd
+		case 0x0a:	sprintf(outLine, "\tstexp"); adrs = doFPOperand(adrs);	break; // stexp
+		case 0x0b:	break; // stcfi, stcfl, stcdi, stcdl
+		case 0x0c:	sprintf(outLine, "\tstcdf"); adrs = doFPOperand(adrs);	break; // stcfd, stcdf
+		case 0x0d:	sprintf(outLine, "\tldexp"); adrs = doFPOperand(adrs);	break; // ldexp
+		case 0x0e:	sprintf(outLine, "\tldcif"); adrs = doFPOperand(adrs);	break;	// ldcif, ldcid, ldclf, ldcld
+		case 0x0f:	sprintf(outLine, "\tldcdf"); adrs = doFPOperand(adrs);	break;	// ldcdf, ldcfd
 	}
 	return adrs + 1;
 }
+//===============================================================
 
 // Output operand
 int doOperand(int adrs, int modereg)
@@ -942,11 +910,9 @@ int doOperand(int adrs, int modereg)
 	reg = modereg & 7;
 	switch (mode)
 	{
-		case 0:			// direct
-			sprintf(temp, "r%d", reg);	break;
-		case 1:			// register deferred
-			sprintf(temp, "(r%d)", reg);	break;
-		case 2:			// auto-increment or immediate (r7)
+		case 0:	sprintf(temp, "r%d", reg);	break; // direct
+		case 1:	sprintf(temp, "(r%d)", reg);	break; // register deferred
+		case 2:	// auto-increment or immediate (r7)
 			if (reg == 7)
 			{
 				adrs++;
@@ -964,11 +930,9 @@ int doOperand(int adrs, int modereg)
 			else
 				sprintf(temp, "@(r%d)+", reg);
 			break;
-		case 4:			// auto-decrement
-			sprintf(temp, "-(r%d)", reg);	break;
-		case 5:			// auto-decrement deferred
-			sprintf(temp, "@-(r%d)", reg);	break;
-		case 6:			// index or relative (r7)
+		case 4:	sprintf(temp, "-(r%d)", reg);	break; // auto-decrement
+		case 5:	sprintf(temp, "@-(r%d)", reg);	break; // auto-decrement deferred
+		case 6:	// index or relative (r7)
 			adrs++;
 			if (reg == 7)
 			{
@@ -995,12 +959,14 @@ int doOperand(int adrs, int modereg)
 	strcat(outLine, temp);
 	return adrs;
 }
+//===============================================================
 
 bool isoctal(char c)
 {
 	if (c >= '0' && c <= '7')	return TRUE;
 	return FALSE;
 }
+//===============================================================
 
 //	Get octal number from line in control file.
 //	Return updated character pointer.

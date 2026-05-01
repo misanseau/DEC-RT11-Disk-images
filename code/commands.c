@@ -1949,11 +1949,40 @@ static void exam_interpret_dirseg(const unsigned char *buf2) {
     }
 }
 
-static int do_disasm(char *tokens[], int n) {
+void SetCtrl(unsigned char buf[], unsigned char cont[])
+{
+    int i, j, cnt, p0, p1;
+
+    memset(&cont[0], CTL_NONE, 512);
+    cnt = 0;
+    p0 = 0;
+    p1 = 0;
+    for (i = 0; i < 512; i++) {
+        if (buf[i] == 0) {
+            cnt += 1;
+            if (p0 == 0) p0 = i;
+        }
+        else {
+            if (p1 == 0) {
+                p1 = i - 1;
+                if (cnt > 3) { 
+                    for (j = p0; j <= p1; j++) { cont[j] = CTL_DATA; }
+                }
+                p0 = 0;
+                p1 = 0;
+                cnt = 0;
+            }
+        }
+    }
+    //for (i=0; i<512; i++) fprintf(stderr, "nro %d %d\n", i, cont[i]);
+}
+
+
+static int do_disasm(char* tokens[], int n) {
     int i = 1, rc;
-    Mount *m;
+    Mount* m;
     long blk;
-    char *endp;
+    char* endp;
     unsigned char buf[MAX], control[MAX];
 
     m = resolve_dv(tokens, n, &i);
@@ -1980,17 +2009,14 @@ static int do_disasm(char *tokens[], int n) {
     }
     if ((unsigned long)blk >= (unsigned long)m->total_blocks) {
         fprintf(stderr, "?Block %ld out of range (device has %lu blocks)\n",
-                blk, (unsigned long)m->total_blocks);
+            blk, (unsigned long)m->total_blocks);
         return -1;
     }
     if (read_block(m, blk, buf) != 0) return -1;
-
-    memset(&control[0], CTL_NONE, 512);
-    //for (i = 4; i < 30; i++) control[i] = CTL_DATA;
+    SetCtrl(buf, control);
     rc = disasm(buf, control);
     return 0;
 }
-
 
 static int do_exam(char *tokens[], int n) {
     int i = 1;
