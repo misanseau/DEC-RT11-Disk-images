@@ -1,4 +1,18 @@
 /*
+Copyright (c) 2026 Marcelo Sanseau
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+*/
+
+/*
  * rad50.c - RADIX-50 encoding / decoding implementation.
  */
 #include "rad50.h"
@@ -8,7 +22,7 @@
 
 /* Character table: index -> character. Position 29 is "unused"; we decode
  * it as '?' but refuse to encode it (caller gets mapped to space). */
-static const char rad50_charset[40] =
+static const char rad50_charset[] =
     " ABCDEFGHIJKLMNOPQRSTUVWXYZ$.?0123456789";
 
 /* Map an ASCII character to its RAD50 code (0..39). Unknown characters

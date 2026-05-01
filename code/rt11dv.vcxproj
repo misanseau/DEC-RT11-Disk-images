@@ -155,6 +155,7 @@
     <ClCompile Include="cmd_dir.c" />
     <ClCompile Include="cmd_ods1_dir.c" />
     <ClCompile Include="commands.c" />
+    <ClCompile Include="disasm.c" />
     <ClCompile Include="main.c" />
     <ClCompile Include="mount.c" />
     <ClCompile Include="mt.c" />

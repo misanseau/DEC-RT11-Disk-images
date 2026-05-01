@@ -1,4 +1,18 @@
 /*
+Copyright (c) 2026 Marcelo Sanseau
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+*/
+
+/*
  * rt11.c - RT-11 / TSX+ filesystem operations on a DV image file.
  */
 #include "rt11.h"
@@ -1037,12 +1051,22 @@ int rt11_boot(Rt11Dev *d, const char *monitor_name, const char *handler_name) {
 
     r = find_file_ex(d, monitor_name, &mon_start, &mon_len);
     if (r <= 0) {
-        fprintf(stderr, "?Monitor file '%s' not found on DV\n", monitor_name);
+        fprintf(stderr,
+                "?Monitor file '%s' not on the disk image.\n"
+                "  BOOT reads the monitor + handler from inside the\n"
+                "  mounted RT-11 volume.  COPY them in first:\n"
+                "    COPY %s A:\n"
+                "    COPY <handler> A:\n"
+                "    BOOT A: %s <handler>\n",
+                monitor_name, monitor_name, monitor_name);
         return -1;
     }
     r = find_file_ex(d, handler_name, &hnd_start, &hnd_len);
     if (r <= 0) {
-        fprintf(stderr, "?Handler file '%s' not found on DV\n", handler_name);
+        fprintf(stderr,
+                "?Handler file '%s' not on the disk image.\n"
+                "  Hint: COPY %s A: first, then re-run BOOT.\n",
+                handler_name, handler_name);
         return -1;
     }
 

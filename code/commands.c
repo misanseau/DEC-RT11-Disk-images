@@ -1,4 +1,18 @@
 /*
+Copyright (c) 2026 Marcelo Sanseau
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+*/
+
+/*
  * commands.c - Parse a command line, identify the verb, and invoke the
  * appropriate rt11 / mount routine.  Keeps REPL and one-shot CLI mode
  * on exactly the same code path.
@@ -32,6 +46,7 @@
  *       ASCII, plus interpretation for known RT-11 blocks
  *       (0 = primary boot, 1 = home block, 2-5 = secondary boot,
  *       6+ = directory segment).
+ *   DISASM   [<dv>:]<blk>                                      [#comment]
  *   UMOUNT | U  <dv>                                           [#comment]
  *   LIST   | L                                                 [#comment]
  *   VER    | V                       // print version and build timestamp
@@ -51,6 +66,7 @@
  * filename (with optional /DL and /RT11 modifiers).  When a filename
  * has no extension, ".dsk" is assumed.
  */
+
 #include "commands.h"
 #include "cmd_internal.h"
 #include "mount.h"
@@ -69,6 +85,8 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>     /* time, localtime, struct tm */
+
 #if defined(_WIN32) || defined(_MSC_VER)
 #  include <io.h>     /* _dup, _dup2, _fileno, _close */
 #else
@@ -98,7 +116,15 @@
 #  define RT_FILENO fileno
 #endif
 
-#define RT11DV_VERSION "0.4"
+#define RT11DV_VERSION "0.5"
+#define	FN_LEN			128	// max file name length + 1
+#define	LINE_LEN		128	// max length of output line + 1
+#define BLK_LEN			512 // block length
+#define MAX 			512
+ // Control file codes
+#define	CTL_NONE		0x00	// executable code
+#define	CTL_DATA		0x01	// binary word
+#define	CTL_ASCII		0x02	// ascii data
 
 /* Compile-time platform / build-type detection. */
 static const char *rt11dv_platform(void) {
@@ -1521,6 +1547,7 @@ static int do_exec(char *tokens[], int n) {
     const char *outname = NULL;
     FILE       *fp;
     int         saved_stdout_fd = -1;
+    int         saved_stderr_fd = -1;
     int         rc = 0;
     char        line[2048];
 
@@ -1537,17 +1564,21 @@ static int do_exec(char *tokens[], int n) {
         return -1;
     }
 
-    /* Optional stdout redirect via dup/dup2 so the subsequent
-     * commands' printf goes to <out>. */
+    /* Optional stdout+stderr redirect via dup/dup2.  When the user
+     * gives <out>, both streams are folded into the same file so the
+     * log captures error messages right under the line that triggered
+     * them.  Original fds are restored when EXEC finishes. */
     if (outname) {
         FILE *redir;
 #if defined(_WIN32)
         saved_stdout_fd = _dup(_fileno(stdout));
+        saved_stderr_fd = _dup(_fileno(stderr));
 #else
         saved_stdout_fd = dup(fileno(stdout));
+        saved_stderr_fd = dup(fileno(stderr));
 #endif
-        if (saved_stdout_fd < 0) {
-            fprintf(stderr, "?Cannot save stdout for EXEC redirect\n");
+        if (saved_stdout_fd < 0 || saved_stderr_fd < 0) {
+            fprintf(stderr, "?Cannot save fds for EXEC redirect\n");
             fclose(fp);
             return -1;
         }
@@ -1555,13 +1586,23 @@ static int do_exec(char *tokens[], int n) {
         if (!redir) {
             fprintf(stderr, "?Cannot open '%s' for output\n", outname);
 #if defined(_WIN32)
-            _close(saved_stdout_fd);
+            _close(saved_stdout_fd); _close(saved_stderr_fd);
 #else
-            close(saved_stdout_fd);
+            close(saved_stdout_fd); close(saved_stderr_fd);
 #endif
             fclose(fp);
             return -1;
         }
+        /* Point stderr at the same file descriptor as stdout. */
+        fflush(stderr);
+#if defined(_WIN32)
+        _dup2(_fileno(stdout), _fileno(stderr));
+#else
+        dup2(fileno(stdout), fileno(stderr));
+#endif
+        /* Make stderr unbuffered so errors land in order with stdout
+         * even when stdout itself is block-buffered. */
+        setvbuf(stderr, NULL, _IONBF, 0);
     }
 
     g_exec_depth++;
@@ -1605,15 +1646,28 @@ static int do_exec(char *tokens[], int n) {
     fclose(fp);
 
     if (outname) {
+        /* Flush pending output to <out> and close the redirect.  dup2()
+         * implicitly closes the destination fd before duplicating, so
+         * the output file's fd gets closed (and the file flushed to
+         * disk) right here. */
         fflush(stdout);
+        fflush(stderr);
 #if defined(_WIN32)
         _dup2(saved_stdout_fd, _fileno(stdout));
+        _dup2(saved_stderr_fd, _fileno(stderr));
         _close(saved_stdout_fd);
+        _close(saved_stderr_fd);
 #else
         dup2(saved_stdout_fd, fileno(stdout));
+        dup2(saved_stderr_fd, fileno(stderr));
         close(saved_stdout_fd);
+        close(saved_stderr_fd);
 #endif
         clearerr(stdout);
+        clearerr(stderr);
+        /* Restore default line buffering for stderr now that it's
+         * back on the console. */
+        setvbuf(stderr, NULL, _IOLBF, 0);
     }
     return rc;
 }
@@ -1637,12 +1691,55 @@ static int do_del(char *tokens[], int n) {
 }
 
 /* ECHO -- prints its arguments (joined with single spaces) followed by
- * a newline.  Useful as a section marker inside EXEC files. */
+ * a newline.  Recognised macros in any token (substring substitution):
+ *     %DATE  -> "YYYY-MM-DD" (local time)
+ *     %TIME  -> "HH:MM:SS"   (local time)
+ * Useful as a section marker inside EXEC files. */
+static void echo_substitute(const char *in, char *out, size_t outsz) {
+    time_t now = time(NULL);
+    struct tm lt;
+    char  date_buf[16], time_buf[12];
+    size_t o = 0;
+    const char *p = in;
+#if defined(_WIN32)
+    localtime_s(&lt, &now);
+#else
+    struct tm *tp = localtime(&now);
+    lt = *tp;
+#endif
+    snprintf(date_buf, sizeof(date_buf), "%04d-%02d-%02d",
+             lt.tm_year + 1900, lt.tm_mon + 1, lt.tm_mday);
+    snprintf(time_buf, sizeof(time_buf), "%02d:%02d:%02d",
+             lt.tm_hour, lt.tm_min, lt.tm_sec);
+    while (*p && o + 1 < outsz) {
+        const char *sub = NULL;
+        size_t consume = 0;
+        if (p[0] == '%') {
+            if (strncmp(p, "%DATE", 5) == 0) { sub = date_buf; consume = 5; }
+            else if (strncmp(p, "%TIME", 5) == 0) { sub = time_buf; consume = 5; }
+            else if (strncmp(p, "%date", 5) == 0) { sub = date_buf; consume = 5; }
+            else if (strncmp(p, "%time", 5) == 0) { sub = time_buf; consume = 5; }
+        }
+        if (sub) {
+            size_t sl = strlen(sub);
+            if (o + sl >= outsz) sl = outsz - 1 - o;
+            memcpy(out + o, sub, sl);
+            o += sl;
+            p += consume;
+        } else {
+            out[o++] = *p++;
+        }
+    }
+    out[o] = '\0';
+}
+
 static int do_echo(char *tokens[], int n) {
     int i;
+    char buf[2048];
     for (i = 1; i < n; i++) {
         if (i > 1) fputc(' ', stdout);
-        fputs(tokens[i], stdout);
+        echo_substitute(tokens[i], buf, sizeof(buf));
+        fputs(buf, stdout);
     }
     fputc('\n', stdout);
     return 0;
@@ -1852,6 +1949,49 @@ static void exam_interpret_dirseg(const unsigned char *buf2) {
     }
 }
 
+static int do_disasm(char *tokens[], int n) {
+    int i = 1, rc;
+    Mount *m;
+    long blk;
+    char *endp;
+    unsigned char buf[MAX], control[MAX];
+
+    m = resolve_dv(tokens, n, &i);
+    if (!m) return -1;
+    if (m->kind == MOUNT_KIND_MT) {
+        fprintf(stderr, "?DISASM is only supported on disk (DV) images\n");
+        return -1;
+    }
+    if (i >= n) {
+        fprintf(stderr, "?Usage: DISASM [<dv>] <block>\n");
+        return -1;
+    }
+
+    /* The block number may be decimal or octal (0-prefixed). */
+    blk = strtol(tokens[i], &endp, 0);
+    if (*endp != '\0' || blk < 0) {
+        fprintf(stderr, "?Invalid block number '%s'\n", tokens[i]);
+        return -1;
+    }
+    i++;
+    if (i != n) {
+        fprintf(stderr, "?Extra arguments after DISASM\n");
+        return -1;
+    }
+    if ((unsigned long)blk >= (unsigned long)m->total_blocks) {
+        fprintf(stderr, "?Block %ld out of range (device has %lu blocks)\n",
+                blk, (unsigned long)m->total_blocks);
+        return -1;
+    }
+    if (read_block(m, blk, buf) != 0) return -1;
+
+    memset(&control[0], CTL_NONE, 512);
+    //for (i = 4; i < 30; i++) control[i] = CTL_DATA;
+    rc = disasm(buf, control);
+    return 0;
+}
+
+
 static int do_exam(char *tokens[], int n) {
     int i = 1;
     Mount *m;
@@ -1894,8 +2034,7 @@ static int do_exam(char *tokens[], int n) {
 
     if (blk == 0) {
         printf("\n  -- RT-11 primary boot block (block 0) --\n");
-        printf("    First 2 bytes = %03o %03o  (bootable if != 000 000)\n",
-               buf[0], buf[1]);
+        printf("    First 2 bytes = %03o %03o  (bootable if != 000 000)\n", buf[0], buf[1]);
     } else if (blk == 1) {
         /* Block 1 is "home block" in both worlds.  Try ODS-1 first
          * (it has a strong signature: dual checksums + "DECFILE11A");
@@ -1994,6 +2133,7 @@ void cmd_print_help(void) {
     puts("                                            Block may be decimal or 0-octal");
     puts("                                            Blocks 0/1/2-5/6+ get an extra");
     puts("                                            RT-11 interpretation pass.");
+    puts("  DISASM  E   [<dv>] <block>                Show source code");
     puts("  BOOT   | B   <dv> <monitor> <handler>     Write bootstrap");
     puts("                                              (both files mandatory)");
     puts("  UMOUNT | U   <dv>                         Dismount a DV");
@@ -2012,6 +2152,8 @@ void cmd_print_help(void) {
     puts("                                              (only valid inside an EXEC).");
     puts("  ECHO         <text...>                    Print text to stdout (handy as");
     puts("                                              section marker inside EXEC files).");
+    puts("                                              Macros: %DATE -> YYYY-MM-DD,");
+    puts("                                                      %TIME -> HH:MM:SS.");
     puts("  DEL          <hostpath>                   Delete a HOST file (not a file");
     puts("                                              inside a mounted volume).  No-op");
     puts("                                              if the file doesn't exist.");
@@ -2144,6 +2286,7 @@ int cmd_execute_line(char *line) {
     else if (strcieq(verb, "DIR"))                           rc = do_dir   (tokens, n);
     else if (strcieq(verb, "COPY")   || strcieq(verb, "CP")) rc = do_copy  (tokens, n);
     else if (strcieq(verb, "EXAM")   || strcieq(verb, "E"))  rc = do_exam  (tokens, n);
+    else if (strcieq(verb, "DISASM"))                        rc = do_disasm(tokens, n);
     else if (strcieq(verb, "BOOT")   || strcieq(verb, "B"))  rc = do_boot  (tokens, n);
     else if (strcieq(verb, "UMOUNT") || strcieq(verb, "U"))  rc = do_umount(tokens, n);
     else if (strcieq(verb, "LIST")   || strcieq(verb, "L"))  { mount_list(); rc = 0; }
@@ -2160,7 +2303,6 @@ int cmd_execute_line(char *line) {
         fprintf(stderr, "?Unknown command '%s' (type HELP for a list)\n", verb);
         rc = -1;
     }
-
     redir_end(&redir);
     return rc;
 }

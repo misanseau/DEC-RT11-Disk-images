@@ -1,4 +1,18 @@
 /*
+Copyright (c) 2026 Marcelo Sanseau
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+*/
+
+/*
  * rsts.c - DEC RSTS/E disk pack decoder.
  *
  * Stage 4 layout (per Mayfield "RSTS/E Monitor Internals" ch.1):
@@ -69,7 +83,12 @@
 
 #include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>   /* calloc, free */
 #include <string.h>
+
+/* Forward declarations (functions used before their definition). */
+static int find_account_uar(FILE *fp, uint32_t mfd_lbn, uint32_t dcs,
+                            uint16_t want_ppn, uint16_t *out_uar);
 
 /* ----------------------------------------------------------------------
  *  RAD-50
@@ -1639,10 +1658,10 @@ int rsts_copy_in(Mount *m, int g, int p,
             le16_write(ufd_blk, retr_byte + 0, 0); /* ULNK = 0 (single retrieval) */
             {
                 int i;
-                uint32_t dcn_start = 1u + (uint32_t)pcn_start * (pk.pcs / pk.dcs);
+                uint32_t dcn0 = 1u + (uint32_t)pcn_start * (pk.pcs / pk.dcs);
                 for (i = 0; i < 7; i++) {
                     if ((uint32_t)i < file_clusters) {
-                        uint16_t dcn = (uint16_t)(dcn_start +
+                        uint16_t dcn = (uint16_t)(dcn0 +
                                                   (uint32_t)i * (pk.pcs / pk.dcs));
                         le16_write(ufd_blk, retr_byte + 2 + 2 * i, dcn);
                     } else {
